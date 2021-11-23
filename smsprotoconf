@@ -1,0 +1,6 @@
+config globals 'globals'
+	list device 'Fake_SMS.Виртуальное СМС'
+	list device 'GSM_SMS.GSM модем СМС'
+
+config info 'Settings'
+	option device 'Fake_SMS'
