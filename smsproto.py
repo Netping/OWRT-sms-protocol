@@ -4,6 +4,7 @@ from journal import journal
 import ubus
 import enum
 import time
+import random
 
 
 
@@ -24,19 +25,24 @@ class SMSProto:
     mutex = Lock()
     pollThread = None
 
-    def send(phonenumber, text):
+    def send(phonenumber, text, threadSend=True):
         SMSProto.__parseConfig()
 
         message = { 'phone' : phonenumber,
                     'text' : text }
 
-        SMSProto.mutex.acquire()
-        SMSProto.task_list.insert(0, message)
-        SMSProto.mutex.release()
+        if threadSend:
+            SMSProto.mutex.acquire()
+            SMSProto.task_list.insert(0, message)
+            SMSProto.mutex.release()
 
-        if not SMSProto.pollThread:
-            SMSProto.pollThread = Thread(target=SMSProto.__poll, args=())
-            SMSProto.pollThread.start()
+            if not SMSProto.pollThread:
+                SMSProto.pollThread = Thread(target=SMSProto.__poll, args=())
+                SMSProto.pollThread.start()
+        else:
+            return SMSProto.__sendSMS(phonenumber, text)
+
+        return 0
 
     def __parseConfig():
         #parse config
@@ -46,14 +52,35 @@ class SMSProto:
 
                 confvalues = ubus.call("uci", "get", {"config": "smsprotoconf"})
                 for confdict in list(confvalues[0]['values'].values()):
-                    if confdict['.type'] == 'info':
+                    if confdict['.type'] == 'globals':
                         SMSProto.device = SMSProto.device_type_map[confdict['device']]
             except Exception as e:
                 journal.WriteLog(module_name, "Normal", "error", "Can't parse config: " + str(e))
             finally:
                 ubus.disconnect()
 
+    def __sendSMS(phone, text):
+        ret = 0
+
+        try:
+            if SMSProto.device == device_type.fake_sms:
+                if random.randint(1, 10) < 4: #fail
+                    time.sleep(5)
+                    journal.WriteLog(module_name, "Normal", "error", "Send SMS to " + phone 
+                                        + " failed")
+                else: # success
+                    time.sleep(2)
+                    journal.WriteLog(module_name, "Normal", "notice", "Send SMS to " + phone 
+                                        + " with text '" + text + "'")
+        except Exception as e:
+            journal.WriteLog(module_name, "Normal", "error", "Can't send SMS: " + str(e))
+            ret = -1
+
+        return ret
+
     def __poll():
+        random.seed()
+
         while SMSProto.task_list:
             SMSProto.mutex.acquire()
 
@@ -63,9 +90,6 @@ class SMSProto:
 
             SMSProto.mutex.release()
 
-            if SMSProto.device == device_type.fake_sms:
-                time.sleep(2)
-                journal.WriteLog(module_name, "Normal", "notice", "Send SMS to " + p 
-                                    + " with text '" + t + "'")
+            SMSProto.__sendSMS(p, t)
 
         SMSProto.pollThread = None
